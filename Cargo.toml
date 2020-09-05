@@ -9,8 +9,8 @@ edition = "2018"
 description = "Nintendo file format manipulation library and tools."
 
 [[bin]]
-name = "sprinkle-nsp"
-path = "src/bin/nsp.rs"
+name = "sprinkle"
+path = "src/bin/main.rs"
 
 [dependencies]
 elf = "0.0.10"
