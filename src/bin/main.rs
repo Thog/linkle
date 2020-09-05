@@ -1,5 +1,3 @@
-#[macro_use]
-extern crate clap;
 extern crate sprinkle;
 extern crate serde;
 extern crate serde_json;
@@ -13,17 +11,12 @@ extern crate scroll;
 use scroll::IOwrite;
 use std::env::{self, VarError};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use cargo_metadata::{Message, Package};
-use cargo_toml2::CargoConfig;
-use clap::{App, Arg};
 use derive_more::Display;
 use failure::Fail;
-use goblin::elf::section_header::{SHT_NOBITS, SHT_STRTAB, SHT_SYMTAB};
-use goblin::elf::{Elf, Header as ElfHeader, ProgramHeader};
 use sprinkle::format::{nacp::NacpFile, nxo::NxoFile, romfs::RomFs, pfs0::Pfs0, npdm::NpdmJson, npdm::ACIDBehavior};
 
 #[derive(Debug, Fail, Display)]
@@ -52,40 +45,6 @@ impl From<std::io::Error> for Error {
     }
 }
 
-// TODO: Run cargo build --help to get the list of options!
-const CARGO_OPTIONS: &str = "CARGO OPTIONS:
-    -p, --package <SPEC>...         Package to build
-        --all                       Build all packages in the workspace
-        --exclude <SPEC>...         Exclude packages from the build
-    -j, --jobs <N>                  Number of parallel jobs, defaults to # of CPUs
-        --lib                       Build only this package's library
-        --bin <NAME>...             Build only the specified binary
-        --bins                      Build all binaries
-        --example <NAME>...         Build only the specified example
-        --examples                  Build all examples
-        --test <NAME>...            Build only the specified test target
-        --tests                     Build all tests
-        --bench <NAME>...           Build only the specified bench target
-        --benches                   Build all benches
-        --all-targets               Build all targets (lib and bin targets by default)
-        --release                   Build artifacts in release mode, with optimizations
-        --features <FEATURES>       Space-separated list of features to activate
-        --all-features              Activate all available features
-        --no-default-features       Do not activate the `default` feature
-        --target <TRIPLE>           Build for the target triple
-        --target-dir <DIRECTORY>    Directory for all generated artifacts
-        --out-dir <PATH>            Copy final artifacts to this directory
-        --manifest-path <PATH>      Path to Cargo.toml
-        --message-format <FMT>      Error format [default: human]  [possible values: human, json]
-        --build-plan                Output the build plan in JSON
-    -v, --verbose                   Use verbose output (-vv very verbose/build.rs output)
-    -q, --quiet                     No output printed to stdout
-        --color <WHEN>              Coloring: auto, always, never
-        --frozen                    Require Cargo.lock and cache are up to date
-        --locked                    Require Cargo.lock is up to date
-    -Z <FLAG>...                    Unstable (nightly-only) flags to Cargo, see 'cargo -Z help' for details
-    -h, --help                      Prints help information";
-
 trait BetterIOWrite<Ctx: Copy>: IOwrite<Ctx> {
     fn iowrite_with_try<
         N: scroll::ctx::SizeWith<Ctx, Units = usize> + scroll::ctx::TryIntoCtx<Ctx>,
@@ -108,115 +67,16 @@ trait BetterIOWrite<Ctx: Copy>: IOwrite<Ctx> {
 
 impl<Ctx: Copy, W: IOwrite<Ctx> + ?Sized> BetterIOWrite<Ctx> for W {}
 
-fn generate_debuginfo_romfs<P: AsRef<Path>>(
-    elf_path: &Path,
-    romfs: Option<P>,
-) -> Result<RomFs, Error> {
-    let mut elf_file = File::open(elf_path)?;
-    let mut buffer = Vec::new();
-    elf_file.read_to_end(&mut buffer)?;
-    let elf = goblin::elf::Elf::parse(&buffer)?;
-    let new_file = {
-        let mut new_path = PathBuf::from(elf_path);
-        new_path.set_extension("debug");
-        let mut file = File::create(&new_path)?;
-        let Elf {
-            mut header,
-            program_headers,
-            mut section_headers,
-            is_64,
-            little_endian,
-            ..
-        } = elf;
-
-        let ctx = goblin::container::Ctx {
-            container: if is_64 {
-                goblin::container::Container::Big
-            } else {
-                goblin::container::Container::Little
-            },
-            le: if little_endian {
-                goblin::container::Endian::Little
-            } else {
-                goblin::container::Endian::Big
-            },
-        };
-
-        for section in section_headers.iter_mut() {
-            if section.sh_type == SHT_NOBITS
-                || section.sh_type == SHT_SYMTAB
-                || section.sh_type == SHT_STRTAB
-            {
-                continue;
-            }
-            if let Some(Ok(s)) = elf.shdr_strtab.get(section.sh_name) {
-                if !(s.starts_with(".debug") || s == ".comment") {
-                    section.sh_type = SHT_NOBITS;
-                }
-            }
-        }
-
-        // Calculate section data length + elf/program headers
-        let data_off = ElfHeader::size(&ctx) + ProgramHeader::size(&ctx) * program_headers.len();
-        let shoff = data_off as u64
-            + section_headers
-                .iter()
-                .map(|v| {
-                    if v.sh_type != SHT_NOBITS {
-                        v.sh_size
-                    } else {
-                        0
-                    }
-                })
-                .sum::<u64>();
-
-        // Write ELF header
-        // TODO: Anything else?
-        header.e_phoff = ::std::mem::size_of::<ElfHeader>() as u64;
-        header.e_shoff = shoff;
-        file.iowrite_with(header, ctx)?;
-
-        // Write program headers
-        for phdr in program_headers {
-            file.iowrite_with_try(phdr, ctx)?;
-        }
-
-        // Write section data
-        let mut cur_idx = data_off;
-        for section in section_headers
-            .iter_mut()
-            .filter(|v| v.sh_type != SHT_NOBITS)
-        {
-            file.write_all(
-                &buffer[section.sh_offset as usize..(section.sh_offset + section.sh_size) as usize],
-            )?;
-            section.sh_offset = cur_idx as u64;
-            cur_idx += section.sh_size as usize;
-        }
-
-        // Write section headers
-        for section in section_headers {
-            file.iowrite_with(section, ctx)?;
-        }
-
-        file.sync_all()?;
-        new_path
-    };
-
-    let mut romfs = if let Some(romfs) = romfs {
-        RomFs::from_directory(romfs.as_ref())?
-    } else {
-        RomFs::empty()
-    };
-
-    romfs.push_file(&new_file, "debug_info.elf")?;
-
-    Ok(romfs)
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct NspMetadata {
+    npdm: String
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-struct PackageMetadata {
-    npdm: String
+struct NroMetadata {
+    romfs: Option<String>,
+    icon: Option<String>,
+    nacp: Option<NacpFile>
 }
 
 trait WorkspaceMember {
@@ -243,7 +103,8 @@ impl WorkspaceMember for cargo_metadata::PackageId {
 }
 
 enum Format {
-    NSP
+    NSP,
+    NRO
 }
 
 fn main() {
@@ -255,7 +116,11 @@ fn main() {
                 println!("Building NSP sysmodule...");
                 Format::NSP
             },
-            _ => panic!("Unknown format type (available types: nsp)"),
+            "nro" => {
+                println!("Building NRO binary...");
+                Format::NRO
+            }
+            _ => panic!("Unknown format type (available types: nsp, nro)"),
         },
         None => panic!("No format argument was specified"),
     };
@@ -307,7 +172,7 @@ fn main() {
 
                 match fmt {
                     Format::NSP => {
-                        let target_metadata: PackageMetadata = serde_json::from_value(
+                        let target_metadata: NspMetadata = serde_json::from_value(
                             package
                                 .metadata
                                 .pointer("/sprinkle/nsp")
@@ -316,7 +181,7 @@ fn main() {
                         )
                         .unwrap_or_default();
         
-                        let target_path = artifact.filenames[0].as_path().parent().unwrap();
+                        let target_path = artifact.filenames[0].parent().unwrap();
         
                         let exefs_dir = target_path.join("exefs");
                         let _ = std::fs::remove_dir_all(exefs_dir.clone());
@@ -348,6 +213,35 @@ fn main() {
                         .map_err(|err| (err, exefs_nsp.clone())).unwrap();
         
                         println!("Built {}", exefs_nsp.to_string_lossy());
+                    },
+                    Format::NRO => {
+                        let target_metadata: NroMetadata = serde_json::from_value(
+                            package
+                                .metadata
+                                .pointer("/sprinkle/nro")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null),
+                        )
+                        .unwrap_or_default();
+        
+                        let mut nro = artifact.filenames[0].clone();
+                        assert!(nro.set_extension("nro"));
+
+                        let romfs = target_metadata.romfs.as_ref().map(|romfs_dir| RomFs::from_directory(&root.join(romfs_dir)).unwrap());
+                        let icon = target_metadata.icon.map(|icon_file| root.join(icon_file.clone())).map(|icon_path| icon_path.to_string_lossy().into_owned());
+
+                        NxoFile::from_elf(artifact.filenames[0].to_str().unwrap())
+                        .unwrap()
+                        .write_nro(
+                            &mut File::create(nro.clone()).unwrap(),
+                            romfs,
+                            icon.as_ref().map(|icon_path| icon_path.as_str()),
+                            target_metadata.nacp,
+                        )
+                        .unwrap();
+                        
+        
+                        println!("Built {}", nro.to_string_lossy());
                     }
                 };
             }
