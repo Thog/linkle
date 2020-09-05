@@ -1,12 +1,13 @@
 use elf;
 use lz4;
-use serde::de::{Unexpected, Visitor};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sha2::{Digest, Sha256};
 use std;
 use std::fmt;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use sha2::{Sha256, Digest};
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
+use serde::ser::SerializeTuple;
+use serde::de::{Visitor, Unexpected};
 
 pub fn align(size: usize, padding: usize) -> usize {
     ((size as usize) + padding) & !padding
@@ -111,3 +112,40 @@ impl Serialize for HexOrNum {
         serializer.collect_str(&format_args!("{:#010x}", self.0))
     }
 }
+
+macro_rules! array_impls {
+    ($($ty:ident: $len:literal),+) => {
+        $(
+            #[derive(Clone, Copy)]
+            pub struct $ty(pub [u8; $len]);
+
+            impl Default for $ty {
+                fn default() -> Self {
+                    $ty([0; $len])
+                }
+            }
+
+            impl fmt::Debug for $ty {
+                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    f.write_fmt(format_args!("{:02x?}", &self.0[..]))
+                }
+            }
+
+            impl Serialize for $ty {
+                #[inline]
+                fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+                where
+                    S: Serializer,
+                {
+                    let mut seq = serializer.serialize_tuple($len)?;
+                    for e in &self.0[..] {
+                        seq.serialize_element(e)?;
+                    }
+                    seq.end()
+                }
+            }
+        )+
+    }
+}
+
+array_impls!(SigOrPubKey: 0x100, Reserved64: 0x30);

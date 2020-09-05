@@ -2,6 +2,8 @@
 [![Apache 2 license](https://img.shields.io/badge/license-Apache-blue.svg)](https://raw.githubusercontent.com/MegatonHammer/linkle/master/LICENSE-APACHE)
 [![Discord](https://img.shields.io/discord/439418034130780182.svg)]( https://discord.gg/MZJbNZY)
 
+> **IMPORTANT**: *sprinkle* is a (temporary?) alternate fork of linkle with NPDM support (with a merged PR) and providing some more specific support to `aarch64-switch-rs` projects.
+
 # Introduction
 
 This program permits to convert or create various formats used on the Nintendo Switch.
