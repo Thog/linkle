@@ -81,8 +81,8 @@ impl KernelCapability {
                 lowest_cpu_id,
             } => {
                 vec![*0b111u32
-                    .set_bits(04..10, u32::from(*lowest_thread_priority))
-                    .set_bits(10..16, u32::from(*highest_thread_priority))
+                    .set_bits(04..10, u32::from(*highest_thread_priority))
+                    .set_bits(10..16, u32::from(*lowest_thread_priority))
                     .set_bits(16..24, u32::from(*lowest_cpu_id))
                     .set_bits(24..32, u32::from(*highest_cpu_id))]
             },
