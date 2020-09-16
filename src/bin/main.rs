@@ -6,7 +6,6 @@ extern crate serde_derive;
 extern crate cargo_metadata;
 extern crate cargo_toml2;
 extern crate scroll;
-extern crate reqwest;
 
 use std::env::{self, VarError};
 use std::fs::{File, OpenOptions};
@@ -27,31 +26,6 @@ struct NroMetadata {
     icon: Option<String>,
     nacp: Option<NacpFile>
 }
-
-/*
-trait WorkspaceMember {
-    fn part(&self, n: usize) -> &str;
-
-    fn name(&self) -> &str {
-        self.part(0)
-    }
-
-    fn version(&self) -> semver::Version {
-        semver::Version::parse(self.part(1)).expect("bad version in cargo metadata")
-    }
-
-    fn url(&self) -> &str {
-        let url = self.part(2);
-        &url[1..url.len() - 1]
-    }
-}
-
-impl WorkspaceMember for cargo_metadata::PackageId {
-    fn part(&self, n: usize) -> &str {
-        self.repr.splitn(3, ' ').nth(n).unwrap()
-    }
-}
-*/
 
 enum Format {
     NSP,
