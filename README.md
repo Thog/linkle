@@ -1,112 +1,44 @@
-[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/MegatonHammer/linkle/master/LICENSE-MIT)
-[![Apache 2 license](https://img.shields.io/badge/license-Apache-blue.svg)](https://raw.githubusercontent.com/MegatonHammer/linkle/master/LICENSE-APACHE)
-[![Discord](https://img.shields.io/discord/439418034130780182.svg)]( https://discord.gg/MZJbNZY)
+# sprinkle
 
-> **IMPORTANT**: *sprinkle* is a (temporary?) alternate fork of linkle with NPDM support (with a merged PR) and providing some more specific support to `aarch64-switch-rs` projects.
+## Introduction
 
-# Introduction
+*sprinkle* is an alternate fork of [linkle](https://github.com/MegatonHammer/linkle), extending it for some specific purposes.
 
-This program permits to convert or create various formats used on the Nintendo Switch.
-For now, it only supports the creation of PFS0/NSP and 64 bits NRO/NSO. It can also
-be used with cargo through `cargo nro` to simplify the build process of Megaton-Hammer
-homebrew.
+It is aimed as a simple build command for projects based on this organization's libraries and tools, to avoid having to mess with makefiles or scripts, and including support for generating various formats (linkle's original purpose) after projects are built.
 
-# Installation
+## Installation
 
-## Source Installation
+Assuming you have `cargo` installed, `cargo install sprinkle --git https://github.com/aarch64-switch-rs/sprinkle`
+will install the `sprinkle` subcommand.
 
-Assuming you have `cargo` installed, `cargo install --features=binaries linkle`
-will install `linkle` and the `cargo nro` subcommand.
+## Project formats
 
-## Binary Installation
+Extra fields used for building are placed inside `[package.metadata.sprinkle.<format>]` in Cargo.toml. These fields vary depending on the project's format:
 
-Alternatively, you can download the `linkle` binary for Windows, MacOS and Linux
-ARM64 in the [Github Releases](https://github.com/MegatonHammer/linkle/releases).
+### NRO
 
-# Usage
+Projects which generate homebrew NRO binaries don't need any mandatory fields/files, but can set optional ones.
 
-Creating a NRO file:
+- Example:
 
-    linkle nro input.elf output.nro
-
-Creating a NSO file:
-
-    linkle nso input.elf output.nso
-
-Creating a PFS0/NSP file:
-
-    linkle pfs0 input_directory output.pfs0
-
-Creating a NACP file:
-
-    linkle ncap input.json output.nacp
-
-Creating a RomFs file:
-
-    linkle romfs input_directory output.romfs
-
-Compiling and creating an NRO file (requires xargo, use `cargo install xargo` to install):
-
-    cargo nro
-
-# Cargo.toml metadata format
-
-When compiling a project with `cargo nro`, a special `[package.metadata.linkle.BINARY_NAME]` key is
-used to allow customizing the build. This is an example Cargo.toml:
-
-```
+```toml
 [package]
-name = "link"
+name = "Project"
 version = "0.1.0"
-authors = ["linkle"]
+authors = ["XorTroll"]
+edition = "2018"
 
-[package.metadata.linkle.megaton-example]
-romfs = "res/"
-icon = "icon.jpeg"
-titleid = "0100000000819"
-
-[package.metadata.linkle.megaton-example.nacp]
-name = "Link"
-
-[package.metadata.linkle.megaton-example.nacp.lang.ja]
-"name": "リンク",
-"author": "リンクル"
+[package.metadata.sprinkle.nro]
+romfs = "romfs_dir"
+icon = "icon.jpg"
+nacp = { name = "Sample project", author = "XorTroll", version = "0.1 beta" }
 ```
 
-All paths are relative to the project root (where the Cargo.toml file is located).
+> Note: the `romfs` and `icon` fields must point to items located in the same directory as Cargo.toml!
 
-Every field has a sane default:
+#### NACP fields
 
-| Field             | Description                                      | Default value       |
-| ----------------- |:------------------------------------------------:| -------------------:|
-| romfs             | The application romfs directory.                 | res/                |
-| icon              | The application icon.                            | icon.jpg            |
-| title_id          | The application title id.                        | 0000000000000000    |
-
-The `[package.metadata.linkle.BINARY_NAME.nacp]` key follows the [NACP input format](#nacp-input-format)
-
-# NACP input format
-
-This is an example of a compatible JSON:
-
-```json
-{
-    "name": "Link",
-    "author": "Linkle",
-    "version": "1.0.0",
-    "title_id": "0400000000020000",
-    "lang": {
-        "ja": {
-            "name": "リンク",
-            "author": "リンクル"
-        }
-    }
-}
-```
-
-## Fields
-
-NOTE: Every fields are optional
+> Note: every fields are optional!
 
 | Field             | Description                                      | Default value       |
 | ----------------- |:------------------------------------------------:| -------------------:|
@@ -134,3 +66,57 @@ NOTE: Every fields are optional
 | ko                 |
 | zh-TW              |
 | zh-CN              |
+
+- Example with specific languages:
+
+```toml
+[package]
+name = "Multi-language"
+version = "0.2.0"
+authors = ["XorTroll"]
+edition = "2018"
+
+[package.metadata.sprinkle.nro]
+nacp = { name = "A", author = "B", version = "0.2 beta", lang = { ja = { name = "J" }, es = { author = "X" }, it = { name = "I", author = "T" } } }
+
+# Result:
+# - Japanese: "J", "B"
+# - Spanish: "A", "X"
+# - Italian: "I", "T"
+# - Other languages: "A", "B"
+```
+
+> Note: only `name` and `author` can be language-specific, other parameters such as `titleid` or `version` are not!
+
+### NSP
+
+Projects which generate sysmodule NSP exefs packages need a single, mandatory field for the NPDM data:
+
+- Example:
+
+```toml
+[package]
+name = "Project"
+version = "0.2.10"
+authors = ["XorTroll"]
+edition = "2018"
+
+[package.metadata.sprinkle.nsp]
+npdm = "npdm.json"
+```
+
+> Note: the NPDM JSON file follows the same format used in most homebrews (check projects like Atmosphere, emuiibo, ldn_mitm...) and must be located in the same directory as Cargo.toml!
+
+## Building
+
+> Command: `sprinkle <format> [<optional-extra-cargo-arguments>]`
+
+> Available formats (listed above): `nro`, `nsp`
+
+Running this command will (among other minor details) run `xargo build` and, after building the project, will generate the specific files depending on the project build format.
+
+A default target is used, whose JSON specs are included within sprinkle itself (check [here](/specs)). Support for custom targets is planned but not supported yet.
+
+## Credits
+
+- *linkle* project and its developers for the base of this fork

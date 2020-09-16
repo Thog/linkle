@@ -1,6 +1,6 @@
 [package]
 name = "sprinkle"
-version = "0.2.10"
+version = "0.1.0"
 authors = ["Thog <contact@thog.eu>", "XorTroll"]
 license = "MIT/Apache-2.0"
 homepage = "https://github.com/XorTroll/sprinkle/"
@@ -43,6 +43,7 @@ pem = "0.6"
 rand = "0.7"
 rsa = { git = "https://github.com/RustCrypto/RSA", rev = "11500ed" }
 hex = "0.3"
+reqwest = { version = "0.10", features = ["blocking", "json"] }
 
 [features]
 default = ["structopt", "cargo_metadata", "semver", "scroll", "goblin", "clap", "cargo-toml2"]

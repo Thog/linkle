@@ -5,67 +5,16 @@ extern crate serde_json;
 extern crate serde_derive;
 extern crate cargo_metadata;
 extern crate cargo_toml2;
-extern crate goblin;
 extern crate scroll;
+extern crate reqwest;
 
-use scroll::IOwrite;
 use std::env::{self, VarError};
 use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use cargo_metadata::{Message, Package};
-use derive_more::Display;
-use failure::Fail;
 use sprinkle::format::{nacp::NacpFile, nxo::NxoFile, romfs::RomFs, pfs0::Pfs0, npdm::NpdmJson, npdm::ACIDBehavior};
-
-#[derive(Debug, Fail, Display)]
-enum Error {
-    #[display(fmt = "{}", _0)]
-    Goblin(#[cause] goblin::error::Error),
-    #[display(fmt = "{}", _0)]
-    Sprinkle(#[cause] sprinkle::error::Error),
-}
-
-impl From<goblin::error::Error> for Error {
-    fn from(from: goblin::error::Error) -> Error {
-        Error::Goblin(from)
-    }
-}
-
-impl From<sprinkle::error::Error> for Error {
-    fn from(from: sprinkle::error::Error) -> Error {
-        Error::Sprinkle(from)
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(from: std::io::Error) -> Error {
-        sprinkle::error::Error::from(from).into()
-    }
-}
-
-trait BetterIOWrite<Ctx: Copy>: IOwrite<Ctx> {
-    fn iowrite_with_try<
-        N: scroll::ctx::SizeWith<Ctx, Units = usize> + scroll::ctx::TryIntoCtx<Ctx>,
-    >(
-        &mut self,
-        n: N,
-        ctx: Ctx,
-    ) -> Result<(), N::Error>
-    where
-        N::Error: From<std::io::Error>,
-    {
-        let mut buf = [0u8; 256];
-        let size = N::size_with(&ctx);
-        let buf = &mut buf[0..size];
-        n.try_into_ctx(buf, ctx)?;
-        self.write_all(buf)?;
-        Ok(())
-    }
-}
-
-impl<Ctx: Copy, W: IOwrite<Ctx> + ?Sized> BetterIOWrite<Ctx> for W {}
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct NspMetadata {
@@ -79,6 +28,7 @@ struct NroMetadata {
     nacp: Option<NacpFile>
 }
 
+/*
 trait WorkspaceMember {
     fn part(&self, n: usize) -> &str;
 
@@ -101,10 +51,28 @@ impl WorkspaceMember for cargo_metadata::PackageId {
         self.repr.splitn(3, ' ').nth(n).unwrap()
     }
 }
+*/
 
 enum Format {
     NSP,
     NRO
+}
+
+const TARGET: &str = "aarch64-none-elf";
+const TARGET_JSON: &str = include_str!("../../specs/aarch64-none-elf.json");
+const TARGET_LD: &str = include_str!("../../specs/aarch64-none-elf.ld");
+
+fn ensure_target(root: &str) -> String {
+    let target_path = format!("{}/target", root);
+    std::fs::create_dir_all(target_path.clone()).unwrap();
+
+    let json = format!("{}/{}.json", target_path, TARGET);
+    let ld = format!("{}/{}.ld", target_path, TARGET);
+
+    std::fs::write(json, TARGET_JSON.replace("$LD_PATH", ld.as_str())).unwrap();
+    std::fs::write(ld, TARGET_LD.to_string()).unwrap();
+    
+    target_path
 }
 
 fn main() {
@@ -130,12 +98,9 @@ fn main() {
         s => PathBuf::from(s.unwrap()),
     };
 
-    let target = "aarch64-none-elf";
-    let mut command = Command::new("xargo");
-
     let mut xargo_args: Vec<String> = vec![
         String::from("build"),
-        format!("--target={}", target),
+        format!("--target={}", TARGET),
         String::from("--message-format=json-diagnostic-rendered-ansi"),
     ];
 
@@ -144,14 +109,13 @@ fn main() {
         xargo_args.push(arg);
     }
 
-    command
-        .args(&xargo_args)
-        .stdout(Stdio::piped())
-        .env("RUST_TARGET_PATH", rust_target_path.as_os_str());
+    let target_path = ensure_target(rust_target_path.to_str().unwrap());
 
-    let command = command.spawn().unwrap();
+    let mut command = Command::new("xargo");
+    command.args(&xargo_args).stdout(Stdio::piped()).env("RUST_TARGET_PATH", target_path);
+    let command_output = command.spawn().unwrap();
 
-    let iter = cargo_metadata::parse_messages(command.stdout.unwrap());
+    let iter = cargo_metadata::parse_messages(command_output.stdout.unwrap());
 
     for message in iter {
         match message {
