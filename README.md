@@ -113,7 +113,7 @@ npdm = "npdm.json"
 
 > Available formats (listed above): `nro`, `nsp`
 
-Running this command will (among other minor details) run `xargo build` and, after building the project, will generate the specific files depending on the project build format.
+Running this command will (among other minor details) run `cargo build` and, after building the project, will generate the specific files depending on the project build format.
 
 A default target is used, whose JSON specs are included within sprinkle itself (check [here](/specs)). Support for custom targets is planned but not supported yet.
 

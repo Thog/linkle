@@ -72,21 +72,21 @@ fn main() {
         s => PathBuf::from(s.unwrap()),
     };
 
-    let mut xargo_args: Vec<String> = vec![
+    let mut cargo_args: Vec<String> = vec![
         String::from("build"),
         format!("--target={}", TARGET),
         String::from("--message-format=json-diagnostic-rendered-ansi"),
     ];
 
-    // Forward other arguments to xargo
+    // Forward other arguments to cargo
     for arg in env::args().skip(2) {
-        xargo_args.push(arg);
+        cargo_args.push(arg);
     }
 
     let target_path = ensure_target(rust_target_path.to_str().unwrap());
 
-    let mut command = Command::new("xargo");
-    command.args(&xargo_args).stdout(Stdio::piped()).env("RUST_TARGET_PATH", target_path);
+    let mut command = Command::new("cargo");
+    command.args(&cargo_args).stdout(Stdio::piped()).env("RUST_TARGET_PATH", target_path);
     let command_output = command.spawn().unwrap();
 
     let iter = cargo_metadata::parse_messages(command_output.stdout.unwrap());
